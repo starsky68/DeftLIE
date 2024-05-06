@@ -81,7 +81,7 @@ class DeftLIE(nn.Module):
             Convlog(dim,3) 
         )
         self.gc1 = GsConv2d(3,3,scale=3)
-        
+        self.gc2 = GsConv2d(3,3,scale=3)
         self._initialize_weights()
 
     def _initialize_weights(self):
@@ -93,13 +93,13 @@ class DeftLIE(nn.Module):
         i = self.c1(x)
         c1 = x+i*self.gc1(x)
         gamma = self.c2(c1)**2
-        ex = x+c1+gamma
+        ex = x+c1+gamma*self.gc2(x)
         return ex, i, c1
 
         
     
 def DeftLIE_sice():
-    model = DeftLIE(dim=16, h_dim=3,droprate=0.)
+    model = DeftLIE(dim=3, h_dim=3,droprate=0.)
     return model
 
 
