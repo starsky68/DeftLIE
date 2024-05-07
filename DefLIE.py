@@ -48,7 +48,7 @@ class GsConv2d(nn.Module):
 
         
 class HCEA(nn.Module):
-    #Hourglass Curve Estimation
+    #Hourglass
     def __init__(self, dim, h_dim=3,droprate=0.2):
         super(HCEA, self).__init__()
         self.d = Convlog(dim,h_dim)
