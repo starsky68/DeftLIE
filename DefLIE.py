@@ -21,7 +21,7 @@ class Convlog(nn.Module):
         
 class GsConv2d(nn.Module):
     #GaussianConv2d
-    def __init__(self,in_channels,out_channels, scale=3, stride=1, dilation=1,groups=1,bias=True):  
+    def __init__(self,in_channels,out_channels, scale=3, stride=1, dilation=1,groups=1,bias=True,sigma=1):  
         super(GsConv2d, self).__init__()  
         self.scale = scale     
         self.groups = groups
@@ -29,19 +29,16 @@ class GsConv2d(nn.Module):
         self.dilation = dilation
         self.padding = scale//2
         self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *(scale,scale))) 
-        self.weight_sclce = nn.Parameter(torch.Tensor(scale))
-        self.weight_sigma = nn.Parameter(torch.Tensor(scale))
+        self.sigma = sigma
         self.bias = nn.Parameter(torch.Tensor(out_channels)) if bias else None
         self.reset_parameters()
 
     def reset_parameters(self):
         self.weight.data.uniform_(-self.scale//2, self.scale//2)
-        nn.init.constant_(self.weight_sclce, 1.)
-        nn.init.constant_(self.weight_sigma, 1.)
         nn.init.constant_(self.bias, 0.) if self.bias is not None else None
         
     def forward(self, x):  
-        gaussian_weight = self.weight_sclce*torch.exp(-self.weight**2 / (2 * self.weight_sigma**2))
+        gaussian_weight = torch.exp(-self.weight**2 / (2 * self.sigma**2))
         gc = F.conv2d(x, gaussian_weight, self.bias, self.stride,
                         self.padding, self.dilation, self.groups)
         return torch.log1p(gc)
@@ -53,33 +50,55 @@ class HCEA(nn.Module):
         super(HCEA, self).__init__()
         self.d = Convlog(dim,h_dim)
         self.u = Conv(h_dim,dim)
-        self.drop = nn.Dropout(droprate)
+        #self.drop = nn.Dropout(droprate)
         self.h_dim = h_dim
         
     def forward(self, x):
         a = self.d(x)
         p = self.u(a)
-        p=p+x
-        p = self.drop(p)
+        #p = self.drop(p)
         return p
+
+class FoE(nn.Module):
+    #First order enhancement
+    def __init__(self, dim, h_dim=3,droprate=0.2):
+        super(FoE, self).__init__()
+        self.c1 = Conv(3,dim)
+        self.h1 = HCEA(dim, h_dim)
+        self.h2 = HCEA(dim, h_dim)
+        self.h3 = HCEA(dim, h_dim)
+        self.c2 = Convlog(dim,3) 
+    def forward(self, x):
+        c1 = self.c1(x)
+        h1 = self.h1(c1)
+        h2 = self.h2(h1)
+        h3 = self.h3(h2+h1)
+        out = self.c2(h3+c1)
+        return out
+
+class SoE(nn.Module):
+    #Second order enhancement
+    def __init__(self, dim, h_dim=3,droprate=0.2):
+        super(SoE, self).__init__()
+        self.c1 = Conv(3,dim)
+        self.h1 = HCEA(dim, h_dim)
+        self.h2 = HCEA(dim, h_dim)
+        self.c2 = Convlog(dim,3) 
+    def forward(self, x):
+        c1 = self.c1(x)
+        h1 = self.h1(c1)
+        h2 = self.h2(h1+c1)
+        out = self.c2(h2)
+        return out
         
 class DeftLIE(nn.Module):
     def __init__(self,dim=32, h_dim=3,droprate=0.2):
         super(DeftLIE, self).__init__()
         
-        self.c1 = nn.Sequential(
-            Conv(3,dim),
-            HCEA(dim, h_dim,droprate),
-            HCEA(dim, h_dim,droprate),
-            HCEA(dim, h_dim,droprate),
-            Convlog(dim,3) 
-        )
-        self.c2 = nn.Sequential(
-            Conv(3,dim),
-            HCEA(dim, h_dim,droprate),
-            HCEA(dim, h_dim,droprate),
-            Convlog(dim,3) 
-        )
+        self.c1 = FoE(dim)
+        
+        self.c2 = SoE(dim)
+        
         self.gc1 = GsConv2d(3,3,scale=3)
         self.gc2 = GsConv2d(3,3,scale=3)
         self._initialize_weights()
